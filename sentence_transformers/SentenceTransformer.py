@@ -144,8 +144,6 @@ class SentenceTransformer(nn.Sequential):
         if device is None:
             device = self._target_device
 
-        self.to(device)
-
         all_embeddings = []
         length_sorted_idx = np.argsort([-self._text_length(sen) for sen in sentences])
         sentences_sorted = [sentences[idx] for idx in length_sorted_idx]
@@ -572,11 +570,15 @@ class SentenceTransformer(nn.Sequential):
             save_best_model: bool = True,
             max_grad_norm: float = 1,
             use_amp: bool = False,
-            callback: Callable[[float, int, int], None] = None,
+            logging_steps: int = 500,
+            full_scores_callbacks: bool = False,
+            train_callback: Callable[[float, int, int], None] = None,
+            eval_callback: Callable[[float, int, int], None] = None,
             show_progress_bar: bool = True,
             checkpoint_path: str = None,
             checkpoint_save_steps: int = 500,
-            checkpoint_save_total_limit: int = 0
+            checkpoint_save_total_limit: int = 0,
+            accelerator=None
             ):
         """
         Train the model with the given training objective
@@ -599,13 +601,18 @@ class SentenceTransformer(nn.Sequential):
         :param save_best_model: If true, the best model (according to evaluator) is stored at output_path
         :param max_grad_norm: Used for gradient normalization.
         :param use_amp: Use Automatic Mixed Precision (AMP). Only for Pytorch >= 1.6.0
-        :param callback: Callback function that is invoked after each evaluation.
+        :param logging_steps: How often to run the train callback
+        :param train_callback: Callback function that is invoked after `logging_steps` train steps.
+                It must accept the following three parameters in this order:
+                `score`, `epoch`, `steps`
+        :param eval_callback: Callback function that is invoked after each evaluation.
                 It must accept the following three parameters in this order:
                 `score`, `epoch`, `steps`
         :param show_progress_bar: If True, output a tqdm progress bar
         :param checkpoint_path: Folder to save checkpoints during training
         :param checkpoint_save_steps: Will save a checkpoint after so many steps
         :param checkpoint_save_total_limit: Total number of checkpoints to store
+        :param accelerator: Instance of `accelerate.Accelerator` in case the user has already defined one in their script.
         """
 
         ##Add info to model card
@@ -620,7 +627,8 @@ class SentenceTransformer(nn.Sequential):
         self._model_card_vars['{TRAINING_SECTION}'] = ModelCardTemplate.__TRAINING_SECTION__.replace("{LOSS_FUNCTIONS}", info_loss_functions).replace("{FIT_PARAMETERS}", info_fit_parameters)
 
         # accelerate setup
-        accelerator = Accelerator()
+        if accelerator is None:
+            accelerator = Accelerator()
 
         if use_amp:
             from torch.cuda.amp import autocast
@@ -677,6 +685,8 @@ class SentenceTransformer(nn.Sequential):
                 loss_model.zero_grad()
                 loss_model.train()
 
+            loss_values = []
+
             for _ in trange(steps_per_epoch * gradient_accumulation, desc="Iteration", smoothing=0.05, disable=not show_progress_bar):
                 for train_idx in range(num_train_objectives):
                     loss_model = loss_models[train_idx]
@@ -701,7 +711,7 @@ class SentenceTransformer(nn.Sequential):
                         accelerator.backward(scaler.scale(loss_value))
                         training_steps += 1
                         scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
+                        accelerator.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
 
                         if training_steps % gradient_accumulation == 0:
                             scaler.step(optimizer)
@@ -715,32 +725,43 @@ class SentenceTransformer(nn.Sequential):
                         loss_value = loss_model(features, labels)
                         accelerator.backward(loss_value)
                         training_steps += 1
-                        torch.nn.utils.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
+                        accelerator.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
                         if training_steps % gradient_accumulation == 0:
                             optimizer.step()
-
                             optimizer.zero_grad()
                             if not skip_scheduler:
                                 scheduler.step()
                             global_step += 1
 
-                if evaluation_steps > 0 and training_steps % evaluation_steps == 0:
-                    self._eval_during_training(evaluator, output_path, save_best_model, epoch, training_steps, callback)
+                    loss_values.append(loss_value.detach())
+
+                if logging_steps is not None and train_callback is not None:
+                    if global_step % logging_steps == 0:
+                        avg_loss = torch.mean(torch.stack(loss_values)).cpu().numpy()
+                        if accelerator.is_main_process:
+                            train_callback(avg_loss, epoch, global_step)
+                        loss_values = []
+
+                if evaluation_steps > 0 and global_step % evaluation_steps == 0:
+                    self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback, accelerator.is_main_process, full_scores_callbacks)
 
                     for loss_model in loss_models:
                         loss_model.zero_grad()
                         loss_model.train()
 
-                if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 and global_step % checkpoint_save_steps == 0:
+                accelerator.wait_for_everyone()
+                if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 and global_step % checkpoint_save_steps == 0 and accelerator.is_main_process:
                     self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
 
-            self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, callback)
+            self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, eval_callback, accelerator.is_main_process, full_scores_callbacks)
 
-        if evaluator is None and output_path is not None:   #No evaluator, but output path: save final model version
+        accelerator.wait_for_everyone()
+        if evaluator is None and output_path is not None and accelerator.is_main_process:   #No evaluator, but output path: save final model version
             self.save(output_path)
 
-        if checkpoint_path is not None:
+        accelerator.wait_for_everyone()
+        if checkpoint_path is not None and accelerator.is_main_process:
             self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
 
@@ -758,7 +779,7 @@ class SentenceTransformer(nn.Sequential):
             os.makedirs(output_path, exist_ok=True)
         return evaluator(self, output_path)
 
-    def _eval_during_training(self, evaluator, output_path, save_best_model, epoch, steps, callback):
+    def _eval_during_training(self, evaluator, output_path, save_best_model, epoch, steps, callback, is_main_process=True, full_scores_callbacks=False):
         """Runs evaluation during the training"""
         eval_path = output_path
         if output_path is not None:
@@ -767,11 +788,16 @@ class SentenceTransformer(nn.Sequential):
             os.makedirs(eval_path, exist_ok=True)
 
         if evaluator is not None:
-            score = evaluator(self, output_path=eval_path, epoch=epoch, steps=steps)
-            if callback is not None:
-                callback(score, epoch, steps)
-            if score > self.best_score:
-                self.best_score = score
+            if full_scores_callbacks:
+                main_score, scores = evaluator(self, output_path=eval_path, epoch=epoch, steps=steps, return_all_scores=True)
+                if callback is not None and is_main_process:
+                    callback(scores, epoch, steps)
+            else:
+                main_score = evaluator(self, output_path=eval_path, epoch=epoch, steps=steps, return_all_scores=True)
+                if callback is not None and is_main_process:
+                    callback(main_score, epoch, steps)
+            if main_score > self.best_score:
+                self.best_score = main_score
                 if save_best_model:
                     self.save(output_path)
 

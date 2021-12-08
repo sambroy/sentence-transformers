@@ -5,7 +5,7 @@ import os
 import csv
 import numpy as np
 import scipy.spatial
-from typing import List
+from typing import List, Union, Tuple
 import torch
 
 
@@ -17,7 +17,8 @@ class TranslationEvaluator(SentenceEvaluator):
     and assuming that fr_i is the translation of en_i.
     Checks if vec(en_i) has the highest similarity to vec(fr_i). Computes the accurarcy in both directions
     """
-    def __init__(self, source_sentences: List[str], target_sentences: List[str],  show_progress_bar: bool = False, batch_size: int = 16, name: str = '', print_wrong_matches: bool = False, write_csv: bool = True):
+    def __init__(self, source_sentences: List[str], target_sentences: List[str],  show_progress_bar: bool = False,
+                 batch_size: int = 16, name: str = '', print_wrong_matches: bool = False, write_csv: bool = True):
         """
         Constructs an evaluator based for the dataset
 
@@ -48,7 +49,8 @@ class TranslationEvaluator(SentenceEvaluator):
         self.csv_headers = ["epoch", "steps", "src2trg", "trg2src"]
         self.write_csv = write_csv
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1) -> float:
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1,
+                 return_all_scores: bool = False) -> Union[Tuple[float, dict], float]:
         if epoch != -1:
             if steps == -1:
                 out_txt = " after epoch {}:".format(epoch)
@@ -108,4 +110,7 @@ class TranslationEvaluator(SentenceEvaluator):
 
                 writer.writerow([epoch, steps, acc_src2trg, acc_trg2src])
 
-        return (acc_src2trg+acc_trg2src)/2
+        if return_all_scores:
+            return (acc_src2trg+acc_trg2src)/2, {"acc_src2trg": acc_trg2src, "acc_trg2src": acc_trg2src}
+        else:
+            return (acc_src2trg+acc_trg2src)/2

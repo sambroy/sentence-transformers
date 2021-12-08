@@ -6,9 +6,7 @@ from tqdm import tqdm, trange
 from ..util import cos_sim, dot_score
 import os
 import numpy as np
-from typing import List, Tuple, Dict, Set, Callable
-
-
+from typing import List, Tuple, Dict, Set, Callable, Union
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +32,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
                  batch_size: int = 32,
                  name: str = '',
                  write_csv: bool = True,
-                 score_functions: List[Callable[[Tensor, Tensor], Tensor] ] = {'cos_sim': cos_sim, 'dot_score': dot_score},       #Score function, higher=more similar
+                 score_functions: List[Callable[[Tensor, Tensor], Tensor]] = {'cos_sim': cos_sim, 'dot_score': dot_score},       #Score function, higher=more similar
                  main_score_function: str = None
                  ):
 
@@ -87,7 +85,8 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
             for k in map_at_k:
                 self.csv_headers.append("{}-MAP@{}".format(score_name, k))
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, *args, **kwargs) -> float:
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1,
+                 return_all_scores: bool = False, *args, **kwargs) -> Union[float, Tuple[float, dict]]:
         if epoch != -1:
             out_txt = " after epoch {}:".format(epoch) if steps == -1 else " in epoch {} after {} steps:".format(epoch, steps)
         else:
@@ -131,9 +130,13 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
             fOut.close()
 
         if self.main_score_function is None:
-            return max([scores[name]['map@k'][max(self.map_at_k)] for name in self.score_function_names])
+            main_score = max([scores[name]['map@k'][max(self.map_at_k)] for name in self.score_function_names])
         else:
-            return scores[self.main_score_function]['map@k'][max(self.map_at_k)]
+            main_score = scores[self.main_score_function]['map@k'][max(self.map_at_k)]
+        if return_all_scores:
+            return main_score, scores
+        else:
+            return main_score
 
     def compute_metrices(self, model, corpus_model = None, corpus_embeddings: Tensor = None) -> Dict[str, float]:
         if corpus_model is None:
