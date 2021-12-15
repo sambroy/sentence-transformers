@@ -85,8 +85,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
             for k in map_at_k:
                 self.csv_headers.append("{}-MAP@{}".format(score_name, k))
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1,
-                 return_all_scores: bool = False, *args, **kwargs) -> Union[float, Tuple[float, dict]]:
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, num_proc: int = None, return_all_scores: bool = False, *args, **kwargs) -> Union[float, Tuple[float, dict]]:
         if epoch != -1:
             out_txt = " after epoch {}:".format(epoch) if steps == -1 else " in epoch {} after {} steps:".format(epoch, steps)
         else:
@@ -94,7 +93,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
 
         logger.info("Information Retrieval Evaluation on " + self.name + " dataset" + out_txt)
 
-        scores = self.compute_metrices(model, *args, **kwargs)
+        scores = self.compute_metrices(model, *args, num_proc=num_proc, **kwargs)
 
         # Write results to disc
         if output_path is not None and self.write_csv:
@@ -138,14 +137,14 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
         else:
             return main_score
 
-    def compute_metrices(self, model, corpus_model = None, corpus_embeddings: Tensor = None) -> Dict[str, float]:
+    def compute_metrices(self, model, corpus_model = None, corpus_embeddings: Tensor = None, num_proc: int = None) -> Dict[str, float]:
         if corpus_model is None:
             corpus_model = model
 
         max_k = max(max(self.mrr_at_k), max(self.ndcg_at_k), max(self.accuracy_at_k), max(self.precision_recall_at_k), max(self.map_at_k))
 
         # Compute embedding for the queries
-        query_embeddings = model.encode(self.queries, show_progress_bar=self.show_progress_bar, batch_size=self.batch_size, convert_to_tensor=True)
+        query_embeddings = model.encode(self.queries, show_progress_bar=self.show_progress_bar, batch_size=self.batch_size, convert_to_tensor=True, num_proc=num_proc)
 
         queries_result_list = {}
         for name in self.score_functions:
@@ -157,7 +156,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
 
             #Encode chunk of corpus
             if corpus_embeddings is None:
-                sub_corpus_embeddings = corpus_model.encode(self.corpus[corpus_start_idx:corpus_end_idx], show_progress_bar=False, batch_size=self.batch_size, convert_to_tensor=True)
+                sub_corpus_embeddings = corpus_model.encode(self.corpus[corpus_start_idx:corpus_end_idx], show_progress_bar=False, batch_size=self.batch_size, convert_to_tensor=True, num_proc=num_proc)
             else:
                 sub_corpus_embeddings = corpus_embeddings[corpus_start_idx:corpus_end_idx]
 

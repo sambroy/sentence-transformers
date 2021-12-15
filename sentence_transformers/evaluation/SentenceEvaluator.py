@@ -8,7 +8,7 @@ class SentenceEvaluator:
     Extend this class and implement __call__ for custom evaluators.
     """
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1,
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, num_proc: int = None,
                  return_all_scores: bool = False) -> Union[Tuple[float, dict], float]:
         """
         This is called during training to evaluate the model.
@@ -28,6 +28,9 @@ class SentenceEvaluator:
             If this is -1, then we assume evaluation at the end of the epoch.
         :param return_all_scores
             if true, return a dict of scores rather than only an aggregate
+        :return: a score for the evaluation with a higher score indicating a better result
+        :param num_proc
+            the number of processes to use for evaluation. Allows for multi-GPU evaluation
         :return: a score for the evaluation with a higher score indicating a better result
         """
         pass

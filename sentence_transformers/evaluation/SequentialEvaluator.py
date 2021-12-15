@@ -15,7 +15,7 @@ class SequentialEvaluator(SentenceEvaluator):
         self.evaluators = evaluators
         self.main_score_function = main_score_function
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1,
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, num_proc: int = None,
                  return_all_scores: bool = False) -> Union[Tuple[float, dict], float]:
         main_scores = []
         all_scores = {}
@@ -26,7 +26,7 @@ class SequentialEvaluator(SentenceEvaluator):
                 all_scores[i] = all_score
         else:
             for i, evaluator in enumerate(self.evaluators):
-                main_scores.append(evaluator(model, output_path, epoch, steps, return_all_scores))
+                main_scores.append(evaluator(model, output_path, epoch, steps, num_proc, return_all_scores))
 
         if return_all_scores:
             return self.main_score_function(main_scores), all_scores
