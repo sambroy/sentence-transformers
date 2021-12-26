@@ -801,19 +801,19 @@ class SentenceTransformer(nn.Sequential):
                             train_callback(avg_loss, epoch, global_step)
                         loss_values = []
 
-                if accelerator.is_main_process:
-                    if evaluation_steps > 0 and global_step % evaluation_steps == 0:
-                        self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback, accelerator.is_main_process, full_scores_callbacks)
+                if evaluation_steps > 0 and global_step % evaluation_steps == 0:
+                    self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback, accelerator.is_main_process, full_scores_callbacks)
 
-                            for loss_model in loss_models:
-                                loss_model.zero_grad()
-                                loss_model.train()
+                    for loss_model in loss_models:
+                        loss_model.zero_grad()
+                        loss_model.train()
 
-                    if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 and global_step % checkpoint_save_steps == 0:
-                        self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
+                if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 \
+                        and global_step % checkpoint_save_steps == 0 and accelerator.is_main_process:
+                    self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
-
-            self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, eval_callback, accelerator.is_main_process, full_scores_callbacks)
+            self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, callback,
+                                        accelerator.is_main_process, full_scores_callbacks)
 
         accelerator.wait_for_everyone()
         if accelerator.is_main_process:
