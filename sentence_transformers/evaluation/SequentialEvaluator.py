@@ -21,7 +21,7 @@ class SequentialEvaluator(SentenceEvaluator):
         all_scores = {}
         if return_all_scores:
             for i, evaluator in enumerate(self.evaluators):
-                main_score, all_score = evaluator(model, output_path, epoch, steps, return_all_scores)
+                main_score, all_score = evaluator(model, output_path, epoch, steps, num_proc, return_all_scores)
                 main_scores.append(main_score)
                 all_scores[i] = all_score
         else:

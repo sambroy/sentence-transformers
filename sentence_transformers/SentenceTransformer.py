@@ -796,24 +796,24 @@ class SentenceTransformer(nn.Sequential):
 
                     loss_values.append(loss_value.detach())
 
-                accelerator.wait_for_everyone()
-                if logging_steps is not None and train_callback is not None:
-                    if global_step % logging_steps == 0:
-                        avg_loss = torch.mean(torch.stack(loss_values)).cpu().numpy()
-                        if accelerator.is_main_process:
-                            train_callback(avg_loss, epoch, global_step)
-                        loss_values = []
+                    accelerator.wait_for_everyone()
+                    if logging_steps is not None and train_callback is not None:
+                        if global_step % logging_steps == 0:
+                            avg_loss = torch.mean(torch.stack(loss_values)).cpu().numpy()
+                            if accelerator.is_main_process:
+                                train_callback(avg_loss, epoch, global_step)
+                            loss_values = []
 
-                if evaluation_steps > 0 and global_step % evaluation_steps == 0:
-                    self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback, accelerator.is_main_process, full_scores_callbacks)
+                    if evaluation_steps > 0 and global_step % evaluation_steps == 0:
+                        self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback, accelerator.is_main_process, full_scores_callbacks)
 
-                    for loss_model in loss_models:
-                        loss_model.zero_grad()
-                        loss_model.train()
+                        for loss_model in loss_models:
+                            loss_model.zero_grad()
+                            loss_model.train()
 
-                if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 \
-                        and global_step % checkpoint_save_steps == 0 and accelerator.is_main_process:
-                    self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
+                    if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 \
+                            and global_step % checkpoint_save_steps == 0 and accelerator.is_main_process:
+                        self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
             self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, eval_callback,
                                         accelerator.is_main_process, full_scores_callbacks)
@@ -843,11 +843,15 @@ class SentenceTransformer(nn.Sequential):
 
     def _eval_during_training(self, evaluator, output_path, save_best_model, epoch, steps, callback, is_main_process=True, full_scores_callbacks=False):
         """Runs evaluation during the training"""
-        eval_path = output_path
         if output_path is not None:
             os.makedirs(output_path, exist_ok=True)
             eval_path = os.path.join(output_path, "eval")
             os.makedirs(eval_path, exist_ok=True)
+            best_model_path = os.path.join(output_path, "best_model")
+            os.makedirs(best_model_path, exist_ok=True)
+        else:
+            eval_path = None
+            best_model_path = None
 
         if evaluator is not None:
             if full_scores_callbacks:
@@ -861,7 +865,7 @@ class SentenceTransformer(nn.Sequential):
             if main_score > self.best_score:
                 self.best_score = main_score
                 if save_best_model:
-                    self.save(output_path)
+                    self.save(best_model_path)
 
     def _save_checkpoint(self, checkpoint_path, checkpoint_save_total_limit, step):
         # Store new checkpoint
