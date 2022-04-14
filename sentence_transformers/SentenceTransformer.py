@@ -111,7 +111,8 @@ class SentenceTransformer(nn.Sequential):
                convert_to_tensor: bool = False,
                device: str = None,
                normalize_embeddings: bool = False,
-               num_proc=None) -> Union[List[Tensor], ndarray, Tensor]:
+               multiprocessing_devices: list = None,
+               num_proc: int = None) -> Union[List[Tensor], ndarray, Tensor]:
         """
         Computes sentence embeddings
 
@@ -147,13 +148,13 @@ class SentenceTransformer(nn.Sequential):
         length_sorted_idx = np.argsort([-self._text_length(sen) for sen in sentences])
         sentences_sorted = [sentences[idx] for idx in length_sorted_idx]
         all_embeddings = []
+        if device is None:
+            device = self._target_device
 
         # For distributed training
         if torch.distributed.is_initialized():
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
-            if device is None:
-                device = self._target_device
             # defining the 0-dim sizes of the batches
             sizes = [len(sentences_sorted) // world_size + (1 if rank < len(sentences_sorted) % world_size else 0)
                      for rank in range(world_size)]
@@ -179,8 +180,6 @@ class SentenceTransformer(nn.Sequential):
         else:
             # Single-GPU/single-process
             if num_proc is None or num_proc == 1:
-                if device is None:
-                    device = self._target_device
                 self.to(device)
                 for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
                     sentences_batch = sentences_sorted[start_index:start_index + batch_size]
@@ -196,7 +195,9 @@ class SentenceTransformer(nn.Sequential):
                     sentences_batches = [sentences_sorted[start_index:start_index + batch_size]
                                          for start_index in trange(0, len(sentences), batch_size)]
                     for result in p.map(partial(self._encode,
-                                                device=device,
+                                                multiprocessing=True,
+                                                device=None,
+                                                multiprocessing_devices=multiprocessing_devices,
                                                 output_value=output_value,
                                                 convert_to_numpy=convert_to_numpy,
                                                 normalize_embeddings=normalize_embeddings),
@@ -206,7 +207,7 @@ class SentenceTransformer(nn.Sequential):
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
         if convert_to_tensor:
-            all_embeddings = torch.stack(all_embeddings)
+            all_embeddings = torch.stack([emb.to(device) for emb in all_embeddings])
         elif convert_to_numpy:
             all_embeddings = np.asarray([emb.numpy() for emb in all_embeddings])
 
@@ -216,12 +217,14 @@ class SentenceTransformer(nn.Sequential):
         return all_embeddings
 
     def _encode(self, sentences_batch, device, output_value: str = 'sentence_embedding', convert_to_numpy: bool = False,
-                normalize_embeddings: bool = False, multiprocessing=False):
+                normalize_embeddings: bool = False, multiprocessing=False, multiprocessing_devices=None):
 
         if multiprocessing:
             rank = mp.current_process()._identity[0]
             if device is None and torch.cuda.is_available():
-                device = f"cuda:{rank % torch.cuda.device_count()}"
+                if multiprocessing_devices is None:
+                    multiprocessing_devices = list(range(torch.cuda.device_count()))
+                device = f"cuda:{multiprocessing_devices[rank % len(multiprocessing_devices)]}"
 
         self.to(device)
         features = self.tokenize(sentences_batch)
