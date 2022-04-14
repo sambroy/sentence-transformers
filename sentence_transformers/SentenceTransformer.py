@@ -191,6 +191,7 @@ class SentenceTransformer(nn.Sequential):
             else:
                 # Allows for several CUDA processes
                 cuda_compatible_multiprocess = mp.get_context("spawn")
+                torch.multiprocessing.set_sharing_strategy('file_system')
                 with cuda_compatible_multiprocess.Pool(num_proc) as p:
                     sentences_batches = [sentences_sorted[start_index:start_index + batch_size]
                                          for start_index in trange(0, len(sentences), batch_size)]
