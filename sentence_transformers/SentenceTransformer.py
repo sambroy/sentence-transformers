@@ -582,7 +582,7 @@ class SentenceTransformer(nn.Sequential):
         :return:
             a batch of tensors for the model
         """
-        num_texts = len(batch[0].texts)
+        num_texts = max([len(example.texts) for example in batch])
         texts = [[] for _ in range(num_texts)]
         labels = []
 
