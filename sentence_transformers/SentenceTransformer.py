@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ from torch import nn, Tensor, device
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
+mp.set_sharing_strategy('file_system')
 from tqdm.autonotebook import trange
 import math
 import queue
@@ -191,19 +193,18 @@ class SentenceTransformer(nn.Sequential):
             else:
                 # Allows for several CUDA processes
                 cuda_compatible_multiprocess = mp.get_context("spawn")
-                torch.multiprocessing.set_sharing_strategy('file_system')
                 with cuda_compatible_multiprocess.Pool(num_proc) as p:
                     sentences_batches = [sentences_sorted[start_index:start_index + batch_size]
                                          for start_index in trange(0, len(sentences), batch_size)]
-                    for result in p.map(partial(self._encode,
-                                                multiprocessing=True,
-                                                device=None,
-                                                multiprocessing_devices=multiprocessing_devices,
-                                                output_value=output_value,
-                                                convert_to_numpy=convert_to_numpy,
-                                                normalize_embeddings=normalize_embeddings),
-                                        sentences_batches):
-                        all_embeddings.extend(result)
+                    for result in p.imap(partial(self._encode,
+                                                 multiprocessing=True,
+                                                 device=None,
+                                                 multiprocessing_devices=multiprocessing_devices,
+                                                 output_value=output_value,
+                                                 convert_to_numpy=convert_to_numpy,
+                                                 normalize_embeddings=normalize_embeddings),
+                                         sentences_batches):
+                        all_embeddings.extend(copy.deepcopy(result))
 
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
