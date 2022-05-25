@@ -642,7 +642,8 @@ class SentenceTransformer(nn.Sequential):
             checkpoint_path: str = None,
             checkpoint_save_steps: int = 500,
             checkpoint_save_total_limit: int = 0,
-            accelerator: Accelerator = None
+            accelerator: Accelerator = None,
+            torch_profiler=None
             ):
         """
         Train the model with the given training objective
@@ -798,12 +799,15 @@ class SentenceTransformer(nn.Sequential):
                             if not skip_scheduler:
                                 scheduler.step()
                             global_step += 1
-                        training_steps += 1
+
+                    training_steps += 1
+                    if torch_profiler is not None:
+                        torch_profiler.step()
 
                     loss_values.append(loss_value.detach())
 
-                    accelerator.wait_for_everyone()
                     if logging_steps is not None and train_callback is not None:
+                        accelerator.wait_for_everyone()
                         if global_step % logging_steps == 0:
                             avg_loss = torch.mean(torch.stack(loss_values)).cpu().numpy()
                             if accelerator.is_main_process:
@@ -811,6 +815,7 @@ class SentenceTransformer(nn.Sequential):
                             loss_values = []
 
                     if evaluation_steps > 0 and global_step % evaluation_steps == 0:
+                        accelerator.wait_for_everyone()
                         self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback, accelerator.is_main_process, full_scores_callbacks)
 
                         for loss_model in loss_models:
@@ -819,6 +824,7 @@ class SentenceTransformer(nn.Sequential):
 
                     if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 \
                             and global_step % checkpoint_save_steps == 0 and accelerator.is_main_process:
+                        accelerator.wait_for_everyone()
                         self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
             self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, eval_callback,
