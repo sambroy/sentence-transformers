@@ -823,10 +823,12 @@ class SentenceTransformer(nn.Sequential):
                             loss_model.train()
 
                     if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 \
-                            and global_step % checkpoint_save_steps == 0 and accelerator.is_main_process:
+                            and global_step % checkpoint_save_steps == 0:
                         accelerator.wait_for_everyone()
-                        self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
+                        if accelerator.is_main_process:
+                            self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
+            accelerator.wait_for_everyone()
             self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, eval_callback,
                                         accelerator.is_main_process, full_scores_callbacks)
 
