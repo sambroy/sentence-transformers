@@ -873,7 +873,7 @@ class SentenceTransformer(nn.Sequential):
                 if callback is not None and is_main_process:
                     callback(scores, epoch, steps)
             else:
-                main_score = evaluator(self, output_path=eval_path, epoch=epoch, steps=steps, return_all_scores=True)
+                main_score = evaluator(self, output_path=eval_path, epoch=epoch, steps=steps, return_all_scores=False)
                 if callback is not None and is_main_process:
                     callback(main_score, epoch, steps)
             if main_score > self.best_score:
