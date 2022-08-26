@@ -829,7 +829,7 @@ class SentenceTransformer(nn.Sequential):
                             self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
             accelerator.wait_for_everyone()
-            self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, eval_callback,
+            self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback,
                                         accelerator.is_main_process, full_scores_callbacks)
 
         accelerator.wait_for_everyone()
