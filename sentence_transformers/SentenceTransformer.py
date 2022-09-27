@@ -622,6 +622,7 @@ class SentenceTransformer(nn.Sequential):
             train_objectives: Iterable[Tuple[DataLoader, nn.Module]],
             evaluator: SentenceEvaluator = None,
             epochs: int = 1,
+            early_stopping: int = -1,
             steps_per_epoch: int = None,
             scheduler: str = 'WarmupLinear',
             warmup_steps: int = 10000,
@@ -643,7 +644,7 @@ class SentenceTransformer(nn.Sequential):
             checkpoint_save_steps: int = 500,
             checkpoint_save_total_limit: int = 0,
             accelerator: Accelerator = None,
-            torch_profiler=None
+            torch_profiler=None,
             ):
         """
         Train the model with the given training objective
@@ -740,6 +741,7 @@ class SentenceTransformer(nn.Sequential):
         optimizers = prepared[n_dataloaders + n_loss_models:len(prepared)]
 
         self.best_score = -9999999
+        self.tries = 0
 
         global_step = 0
         data_iterators = [iter(dataloader) for dataloader in dataloaders]
@@ -807,7 +809,6 @@ class SentenceTransformer(nn.Sequential):
                     loss_values.append(loss_value.detach())
 
                     if logging_steps is not None and train_callback is not None:
-                        accelerator.wait_for_everyone()
                         if global_step % logging_steps == 0:
                             avg_loss = torch.mean(torch.stack(loss_values)).cpu().numpy()
                             if accelerator.is_main_process:
@@ -831,6 +832,10 @@ class SentenceTransformer(nn.Sequential):
             accelerator.wait_for_everyone()
             self._eval_during_training(evaluator, output_path, save_best_model, epoch, global_step, eval_callback,
                                         accelerator.is_main_process, full_scores_callbacks)
+
+            if self.tries >= early_stopping > 0:
+                logger.info(f"EARLY STOPPING AT EPOCH {epoch}")
+                break
 
         accelerator.wait_for_everyone()
         if accelerator.is_main_process:
@@ -880,6 +885,8 @@ class SentenceTransformer(nn.Sequential):
                 self.best_score = main_score
                 if save_best_model:
                     self.save(best_model_path)
+            else:
+                self.tries += 1
 
     def _save_checkpoint(self, checkpoint_path, checkpoint_save_total_limit, step):
         # Store new checkpoint
