@@ -458,9 +458,10 @@ def community_detection(embeddings, threshold=0.75, min_community_size=10, init_
 
 from typing import Dict, Optional, Union
 from pathlib import Path
-from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
+from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE, REPO_ID_SEPARATOR
 from huggingface_hub import HfApi, hf_hub_url, cached_download
-from huggingface_hub.snapshot_download import REPO_ID_SEPARATOR
+# from huggingface_hub.snapshot_download import REPO_ID_SEPARATOR
+from huggingface_hub import snapshot_download
 import fnmatch
 
 def snapshot_download(
